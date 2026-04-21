@@ -77,11 +77,13 @@ debug = 1
 [profile.release-lto]
 inherits = "release"
 opt-level = 3
-debug = "none"
-strip = "symbols"
+#debug = "none"
+debug = 1
+#strip = "symbols"
 debug-assertions = false
 overflow-checks = false
-lto = "fat"
+#lto = "fat"
+lto = "off"
 panic = "abort"
 incremental = false
 codegen-units = 1
