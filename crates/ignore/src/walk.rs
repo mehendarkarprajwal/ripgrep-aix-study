@@ -6,7 +6,6 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
     sync::{Arc, OnceLock},
-    time::Instant,
 };
 
 use {

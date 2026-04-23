@@ -23,16 +23,27 @@ static THREAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Types of filesystem operations we track
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum FsOperation {
+    /// Reading directory entries
     ReadDir,
+    /// Getting file metadata
     Metadata,
+    /// Checking file type
     FileType,
+    /// Opening a file
     OpenFile,
+    /// Reading file contents
     ReadFile,
+    /// Getting symlink metadata
     SymlinkMetadata,
+    /// Reading .gitignore files
     GitignoreRead,
+    /// Reading ignore files
     IgnoreFileRead,
+    /// Decompressing a file
     DecompressFile,
+    /// Searching within a file
     SearchFile,
+    /// Memory mapping a file
     MmapFile,
 }
 
@@ -175,6 +186,7 @@ pub struct ProfileGuard {
 }
 
 impl ProfileGuard {
+    /// Create a new profile guard for the given operation
     pub fn new(op: FsOperation) -> Self {
         ProfileGuard {
             op,
