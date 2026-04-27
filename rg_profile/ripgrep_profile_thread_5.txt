@@ -1,0 +1,31 @@
+Thread ID: 5
+=
+
+Operation: gitignore_read
+  Count: 1
+  Total: 72.083µs
+  Average: 72.083µs
+  Min: 72.083µs
+  Max: 72.083µs
+
+Operation: file_type
+  Count: 1689
+  Total: 42.112µs
+  Average: 24ns
+  Min: 0ns
+  Max: 334ns
+
+Operation: read_dir
+  Count: 9
+  Total: 1.774294ms
+  Average: 197.143µs
+  Min: 48.209µs
+  Max: 504.667µs
+
+Operation: search_file
+  Count: 228
+  Total: 58.160746ms
+  Average: 255.09µs
+  Min: 57.791µs
+  Max: 1.935958ms
+

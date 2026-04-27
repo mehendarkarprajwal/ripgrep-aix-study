@@ -1,0 +1,23 @@
+root@bahu13:/home/prajwal/ripgrep-aix-study# cat linux_profile.txt
+Analyzing 13 profile file(s) from rg_profile...
+
+================================================================================
+Ripgrep Filesystem Profiling Summary
+Threads analyzed: 13
+================================================================================
+
+Operation                      Count   Total (ms)     Avg (µs)     Min (µs)     Max (µs)   % Time
+--------------------------------------------------------------------------------
+search_file                    79370      9129.75       115.03        11.78     23482.50    98.2%
+read_dir                        5130        69.78        13.60         6.73       110.86     0.8%
+file_type                     512497        54.56         0.11         0.04       650.94     0.6%
+gitignore_read                   306        39.37       128.67        15.19       622.10     0.4%
+--------------------------------------------------------------------------------
+TOTAL                         597303      9293.46                                          100.0%
+
+Key Insights:
+--------------------------------------------------------------------------------
+• Hottest operation: search_file (9129.75ms, 79370 calls)
+• Most frequent operation: file_type (512497 calls)
+• Slowest average: gitignore_read (128.67µs per call)
+

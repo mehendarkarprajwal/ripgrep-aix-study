@@ -1,0 +1,5 @@
+Thread ID: 12
+=
+
+No operations recorded for this thread.
+Profiling enabled: true

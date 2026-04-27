@@ -1,0 +1,24 @@
+Thread ID: 4
+=
+
+Operation: file_type
+  Count: 1090
+  Total: 33.096µs
+  Average: 30ns
+  Min: 0ns
+  Max: 250ns
+
+Operation: read_dir
+  Count: 7
+  Total: 2.237084ms
+  Average: 319.583µs
+  Min: 71.917µs
+  Max: 899.292µs
+
+Operation: search_file
+  Count: 210
+  Total: 61.476496ms
+  Average: 292.745µs
+  Min: 59.375µs
+  Max: 10.16325ms
+

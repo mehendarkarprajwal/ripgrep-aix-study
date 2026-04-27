@@ -1,0 +1,22 @@
+Analyzing 13 profile file(s) from rg_profile...
+
+================================================================================
+Ripgrep Filesystem Profiling Summary
+Threads analyzed: 13
+================================================================================
+
+Operation                      Count   Total (ms)     Avg (µs)     Min (µs)     Max (µs)   % Time
+--------------------------------------------------------------------------------
+search_file                     2758       724.43       262.66        50.71     10163.25    96.2%
+read_dir                         150        28.05       187.03        47.75      2019.00     3.7%
+file_type                      17602         0.60         0.03         0.00        82.33     0.1%
+gitignore_read                     1         0.07        72.08        72.08        72.08     0.0%
+--------------------------------------------------------------------------------
+TOTAL                          20511       753.15                                          100.0%
+
+Key Insights:
+--------------------------------------------------------------------------------
+• Hottest operation: search_file (724.43ms, 2758 calls)
+• Most frequent operation: file_type (17602 calls)
+• Slowest average: search_file (262.66µs per call)
+
