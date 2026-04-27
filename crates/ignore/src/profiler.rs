@@ -131,14 +131,19 @@ impl ProfilerData {
         writeln!(file, "=")?;
         writeln!(file)?;
 
-        for (op, stats) in &self.stats {
-            writeln!(file, "Operation: {}", op.as_str())?;
-            writeln!(file, "  Count: {}", stats.count)?;
-            writeln!(file, "  Total: {:?}", stats.total_duration)?;
-            writeln!(file, "  Average: {:?}", stats.avg_duration())?;
-            writeln!(file, "  Min: {:?}", stats.min_duration)?;
-            writeln!(file, "  Max: {:?}", stats.max_duration)?;
-            writeln!(file)?;
+        if self.stats.is_empty() {
+            writeln!(file, "No operations recorded for this thread.")?;
+            writeln!(file, "Profiling enabled: {}", PROFILING_ENABLED.load(Ordering::SeqCst))?;
+        } else {
+            for (op, stats) in &self.stats {
+                writeln!(file, "Operation: {}", op.as_str())?;
+                writeln!(file, "  Count: {}", stats.count)?;
+                writeln!(file, "  Total: {:?}", stats.total_duration)?;
+                writeln!(file, "  Average: {:?}", stats.avg_duration())?;
+                writeln!(file, "  Min: {:?}", stats.min_duration)?;
+                writeln!(file, "  Max: {:?}", stats.max_duration)?;
+                writeln!(file)?;
+            }
         }
 
         Ok(())

@@ -334,7 +334,8 @@ impl DirEntryRaw {
         let ty = {
             let _guard = ProfileGuard::new(FsOperation::FileType);
             ent.file_type().map_err(|err| {
-                let err = Error::Io(io::Error::from(err)).with_path(ent.path());
+                let err =
+                    Error::Io(io::Error::from(err)).with_path(ent.path());
                 Error::WithDepth { depth, err: Box::new(err) }
             })?
         };
@@ -1650,7 +1651,14 @@ impl<'s> Worker<'s> {
         // Dump profiling data for this worker thread before it exits
         if profiler::is_enabled() {
             let profile_dir = std::path::Path::new("./rg_profile");
-            let _ = profiler::dump_thread_profile(profile_dir);
+            if let Err(e) = std::fs::create_dir_all(profile_dir) {
+                eprintln!(
+                    "Warning: Failed to create profile directory: {}",
+                    e
+                );
+            } else if let Err(e) = profiler::dump_thread_profile(profile_dir) {
+                eprintln!("Warning: Failed to dump profile data: {}", e);
+            }
         }
     }
 
