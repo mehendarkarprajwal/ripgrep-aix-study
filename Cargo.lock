@@ -248,6 +248,7 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-deque",
  "globset",
+ "libc",
  "log",
  "memchr",
  "regex-automata",

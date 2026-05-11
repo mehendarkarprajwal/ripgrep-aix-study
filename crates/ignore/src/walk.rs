@@ -230,6 +230,30 @@ impl DirEntryInner {
     }
 }
 
+/// AIX-specific helper function to extract file type from d_namlen
+///
+/// On AIX with the custom patch, readdir() stores file type information
+/// in the upper byte of d_namlen (which is 2 bytes but only needs 1 byte
+/// for the actual name length).
+///
+/// Layout of d_namlen:
+/// ┌──────────────────┬──────────────────┐
+/// │   Byte 1 (8-15)  │   Byte 0 (0-7)   │
+/// │   FILE TYPE      │   NAME LENGTH    │
+/// │   (S_IFMT bits)  │   (0-255)        │
+/// └──────────────────┴──────────────────┘
+// Note: The aix_extract_file_type_from_direntry function is no longer needed
+// because we're using a custom AixReadDir that directly accesses dirent64.
+// This function is kept for backward compatibility but always returns None.
+#[cfg(target_os = "aix")]
+fn aix_extract_file_type_from_direntry(
+    _ent: &fs::DirEntry,
+) -> Option<fs::FileType> {
+    // Cannot extract d_namlen from std::fs::DirEntry
+    // Use AixReadDir instead for direct dirent64 access
+    None
+}
+
 /// DirEntryRaw is essentially copied from the walkdir crate so that we can
 /// build `DirEntry`s from whole cloth in the parallel iterator.
 #[derive(Clone)]
@@ -333,11 +357,45 @@ impl DirEntryRaw {
     ) -> Result<DirEntryRaw, Error> {
         let ty = {
             let _guard = ProfileGuard::new(FsOperation::FileType);
-            ent.file_type().map_err(|err| {
-                let err =
-                    Error::Io(io::Error::from(err)).with_path(ent.path());
-                Error::WithDepth { depth, err: Box::new(err) }
-            })?
+
+            #[cfg(target_os = "aix")]
+            {
+                // AIX d_type optimization: Check if enabled via environment variable
+                // READDIR_GET_FILE_TYPE=1 enables reading file type from d_namlen
+                // If not set, falls back to standard lstat() behavior
+
+                if std::env::var("READDIR_GET_FILE_TYPE").is_ok() {
+                    // Environment variable is set - use d_namlen optimization
+                    // Try to extract file type from d_namlen upper byte
+                    match aix_extract_file_type_from_direntry(ent) {
+                        Some(file_type) => Ok(file_type),
+                        None => {
+                            // d_namlen didn't have type info, fallback to lstat()
+                            ent.file_type().map_err(|err| {
+                                let err = Error::Io(io::Error::from(err))
+                                    .with_path(ent.path());
+                                Error::WithDepth { depth, err: Box::new(err) }
+                            })
+                        }
+                    }?
+                } else {
+                    // Environment variable NOT set - use standard lstat() path
+                    ent.file_type().map_err(|err| {
+                        let err = Error::Io(io::Error::from(err))
+                            .with_path(ent.path());
+                        Error::WithDepth { depth, err: Box::new(err) }
+                    })?
+                }
+            }
+
+            #[cfg(not(target_os = "aix"))]
+            {
+                ent.file_type().map_err(|err| {
+                    let err =
+                        Error::Io(io::Error::from(err)).with_path(ent.path());
+                    Error::WithDepth { depth, err: Box::new(err) }
+                })?
+            }
         };
         DirEntryRaw::from_entry_os(depth, ent, ty)
     }

@@ -34,6 +34,9 @@ features = ["std", "perf", "syntax", "meta", "nfa", "hybrid", "dfa-onepass"]
 [target.'cfg(windows)'.dependencies.winapi-util]
 version = "0.1.2"
 
+[target.'cfg(target_os = "aix")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 bstr = { version = "1.6.2", default-features = false, features = ["std"] }
 crossbeam-channel = "0.5.15"

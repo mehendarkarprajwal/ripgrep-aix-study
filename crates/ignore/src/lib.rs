@@ -62,6 +62,9 @@ pub mod profiler;
 pub mod types;
 mod walk;
 
+#[cfg(target_os = "aix")]
+pub mod aix_dirent;
+
 /// Represents an error that can occur when parsing a gitignore file.
 #[derive(Debug)]
 pub enum Error {
