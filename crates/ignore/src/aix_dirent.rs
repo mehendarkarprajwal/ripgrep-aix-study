@@ -26,10 +26,8 @@ use std::fs::FileType;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::ptr;
-
 #[cfg(target_os = "aix")]
-use libc::{DIR, c_char, c_int, c_uint, c_ushort, ino64_t, mode_t, off64_t};
+use libc::{DIR, c_char, c_ushort, mode_t};
 
 /// AIX dirent64 structure matching the system definition
 ///
@@ -38,8 +36,8 @@ use libc::{DIR, c_char, c_int, c_uint, c_ushort, ino64_t, mode_t, off64_t};
 #[cfg(target_os = "aix")]
 #[repr(C)]
 struct Dirent64 {
-    d_offset: off64_t,     // 8 bytes: real offset after this entry
-    d_ino: ino64_t,        // 8 bytes: inode number
+    d_offset: i64,         // 8 bytes: real offset after this entry
+    d_ino: u64,            // 8 bytes: inode number
     d_reclen: c_ushort,    // 2 bytes: length of this record
     d_namlen: c_ushort,    // 2 bytes: length of name + file type in upper byte
     d_name: [c_char; 256], // variable: name (null-terminated)
@@ -76,14 +74,17 @@ pub struct AixDirEntry {
 
 #[cfg(target_os = "aix")]
 impl AixDirEntry {
+    /// Returns the full path to this directory entry.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Returns the file name of this directory entry.
     pub fn file_name(&self) -> &OsStr {
         &self.file_name
     }
 
+    /// Returns the inode number of this directory entry.
     pub fn ino(&self) -> u64 {
         self.ino
     }
@@ -130,13 +131,14 @@ impl AixReadDir {
     pub fn read_entry(&mut self) -> io::Result<Option<AixDirEntry>> {
         unsafe {
             // Reset errno before calling readdir
-            *libc::__errno() = 0;
+            *libc::_Errno() = 0;
 
-            // Call readdir64 to get next entry
-            let entry_ptr = libc::readdir64(self.dir_ptr) as *const Dirent64;
+            // Call readdir to get next entry (cast to our Dirent64 structure)
+            // On AIX, readdir returns dirent64 when _LARGE_FILES is defined
+            let entry_ptr = libc::readdir(self.dir_ptr) as *const Dirent64;
 
             if entry_ptr.is_null() {
-                let errno = *libc::__errno();
+                let errno = *libc::_Errno();
                 if errno == 0 {
                     // End of directory
                     return Ok(None);
@@ -213,7 +215,6 @@ impl Iterator for AixReadDir {
 /// * `None` - If no file type information is available (fallback to lstat)
 #[cfg(target_os = "aix")]
 pub fn extract_file_type_from_namlen(d_namlen: c_ushort) -> Option<FileType> {
-    use file_type_bits::*;
 
     // Extract upper byte (file type bits)
     let type_byte = ((d_namlen >> 8) & 0xFF) as u8;
@@ -237,19 +238,54 @@ pub fn extract_file_type_from_namlen(d_namlen: c_ushort) -> Option<FileType> {
 #[cfg(target_os = "aix")]
 fn mode_to_file_type(mode: mode_t) -> Option<FileType> {
     use file_type_bits::*;
-    use std::os::unix::fs::FileTypeExt;
 
-    // Create a dummy stat structure with just the mode set
-    // SAFETY: We're creating a zeroed stat structure and only setting st_mode
-    // This is safe because FileType only looks at the mode field
-    unsafe {
-        let mut stat: libc::stat = std::mem::zeroed();
-        stat.st_mode = mode;
-
-        // Convert stat to Metadata, then extract FileType
-        // This uses the standard library's conversion logic
-        let metadata = std::os::unix::fs::MetadataExt::from_raw_stat(stat);
-        Some(metadata.file_type())
+    // We need to create a FileType from mode bits
+    // Since FileType can't be directly constructed in Rust, we use std::fs::metadata
+    // on a path that we know has the same file type
+    
+    // However, this is expensive. Instead, we'll use a workaround:
+    // We'll use std::os::unix::fs::FileTypeExt to check the mode bits
+    // and return a FileType from a known file
+    
+    let file_type_mode = mode & S_IFMT;
+    
+    // Match against known file types and use metadata from system paths
+    // This is a workaround since we can't construct FileType directly
+    match file_type_mode {
+        S_IFREG => {
+            // For regular files, use /dev/null which is a character device
+            // Actually, we need a regular file. Let's use /etc/passwd
+            std::fs::metadata("/etc/passwd").ok().map(|m| m.file_type())
+        }
+        S_IFDIR => {
+            // For directories, use /tmp
+            std::fs::metadata("/tmp").ok().map(|m| m.file_type())
+        }
+        S_IFLNK => {
+            // For symlinks, we need to use symlink_metadata
+            std::fs::symlink_metadata("/proc/self").ok().map(|m| m.file_type())
+        }
+        S_IFCHR => {
+            // For character devices, use /dev/null
+            std::fs::metadata("/dev/null").ok().map(|m| m.file_type())
+        }
+        S_IFBLK => {
+            // For block devices, try /dev/sda or similar
+            std::fs::metadata("/dev/hd0").ok()
+                .or_else(|| std::fs::metadata("/dev/sda").ok())
+                .map(|m| m.file_type())
+        }
+        S_IFIFO => {
+            // For FIFOs, we'd need to create one or find one
+            // Return None to fall back to lstat
+            None
+        }
+        S_IFSOCK => {
+            // For sockets, we'd need to find one
+            // Return None to fall back to lstat
+            None
+        }
+        _ => None,
     }
 }
 
