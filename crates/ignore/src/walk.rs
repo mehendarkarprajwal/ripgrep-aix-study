@@ -247,11 +247,58 @@ impl DirEntryInner {
 // This function is kept for backward compatibility but always returns None.
 #[cfg(target_os = "aix")]
 fn aix_extract_file_type_from_direntry(
-    _ent: &fs::DirEntry,
+    ent: &fs::DirEntry,
 ) -> Option<fs::FileType> {
-    // Cannot extract d_namlen from std::fs::DirEntry
-    // Use AixReadDir instead for direct dirent64 access
-    None
+    use std::os::unix::fs::DirEntryExt;
+    use std::os::unix::ffi::OsStrExt;
+    use crate::aix_dirent::{extract_file_type_from_namlen, Dirent64};
+    use libc::DIR;
+    use std::ffi::CString;
+    
+    // SAFETY: This is a workaround to access d_namlen from the directory entry.
+    // Since Rust's fs::DirEntry doesn't expose the raw dirent64 structure,
+    // we need to re-read the directory entry using raw libc calls.
+    unsafe {
+        // Open the parent directory
+        let parent_path = match ent.path().parent() {
+            Some(p) => p.to_path_buf(),
+            None => return None,
+        };
+        
+        let c_path = match CString::new(parent_path.as_os_str().as_bytes()) {
+            Ok(p) => p,
+            Err(_) => return None,
+        };
+        
+        let dir_ptr: *mut DIR = libc::opendir(c_path.as_ptr());
+        if dir_ptr.is_null() {
+            return None;
+        }
+        
+        // Get the inode we're looking for
+        let target_ino = ent.ino();
+        
+        // Read through directory entries to find the matching one
+        loop {
+            *libc::_Errno() = 0;
+            let entry_ptr = libc::readdir(dir_ptr) as *const Dirent64;
+            
+            if entry_ptr.is_null() {
+                libc::closedir(dir_ptr);
+                return None;
+            }
+            
+            let entry = &*entry_ptr;
+            
+            // Check if this is the entry we're looking for (by inode)
+            if entry.d_ino == target_ino {
+                // Extract file type from d_namlen
+                let file_type = extract_file_type_from_namlen(entry.d_namlen);
+                libc::closedir(dir_ptr);
+                return file_type;
+            }
+        }
+    }
 }
 
 /// DirEntryRaw is essentially copied from the walkdir crate so that we can

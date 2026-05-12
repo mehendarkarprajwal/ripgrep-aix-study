@@ -35,12 +35,17 @@ use libc::{DIR, c_char, c_ushort, mode_t};
 /// stores file type in the upper byte of d_namlen.
 #[cfg(target_os = "aix")]
 #[repr(C)]
-struct Dirent64 {
-    d_offset: i64,         // 8 bytes: real offset after this entry
-    d_ino: u64,            // 8 bytes: inode number
-    d_reclen: c_ushort,    // 2 bytes: length of this record
-    d_namlen: c_ushort,    // 2 bytes: length of name + file type in upper byte
-    d_name: [c_char; 256], // variable: name (null-terminated)
+pub struct Dirent64 {
+    /// Real offset after this entry (8 bytes)
+    pub d_offset: i64,
+    /// Inode number (8 bytes)
+    pub d_ino: u64,
+    /// Length of this record (2 bytes)
+    pub d_reclen: c_ushort,
+    /// Length of name + file type in upper byte (2 bytes)
+    pub d_namlen: c_ushort,
+    /// File name (null-terminated, up to 256 bytes)
+    pub d_name: [c_char; 256],
 }
 
 /// File type bit masks from AIX stat.h
