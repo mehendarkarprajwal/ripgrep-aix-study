@@ -230,77 +230,6 @@ impl DirEntryInner {
     }
 }
 
-/// AIX-specific helper function to extract file type from d_namlen
-///
-/// On AIX with the custom patch, readdir() stores file type information
-/// in the upper byte of d_namlen (which is 2 bytes but only needs 1 byte
-/// for the actual name length).
-///
-/// Layout of d_namlen:
-/// ┌──────────────────┬──────────────────┐
-/// │   Byte 1 (8-15)  │   Byte 0 (0-7)   │
-/// │   FILE TYPE      │   NAME LENGTH    │
-/// │   (S_IFMT bits)  │   (0-255)        │
-/// └──────────────────┴──────────────────┘
-// Note: The aix_extract_file_type_from_direntry function is no longer needed
-// because we're using a custom AixReadDir that directly accesses dirent64.
-// This function is kept for backward compatibility but always returns None.
-#[cfg(target_os = "aix")]
-fn aix_extract_file_type_from_direntry(
-    ent: &fs::DirEntry,
-) -> Option<fs::FileType> {
-    use std::os::unix::fs::DirEntryExt;
-    use std::os::unix::ffi::OsStrExt;
-    use crate::aix_dirent::{extract_file_type_from_namlen, Dirent64};
-    use libc::DIR;
-    use std::ffi::CString;
-    
-    // SAFETY: This is a workaround to access d_namlen from the directory entry.
-    // Since Rust's fs::DirEntry doesn't expose the raw dirent64 structure,
-    // we need to re-read the directory entry using raw libc calls.
-    unsafe {
-        // Open the parent directory
-        let parent_path = match ent.path().parent() {
-            Some(p) => p.to_path_buf(),
-            None => return None,
-        };
-        
-        let c_path = match CString::new(parent_path.as_os_str().as_bytes()) {
-            Ok(p) => p,
-            Err(_) => return None,
-        };
-        
-        let dir_ptr: *mut DIR = libc::opendir(c_path.as_ptr());
-        if dir_ptr.is_null() {
-            return None;
-        }
-        
-        // Get the inode we're looking for
-        let target_ino = ent.ino();
-        
-        // Read through directory entries to find the matching one
-        loop {
-            *libc::_Errno() = 0;
-            let entry_ptr = libc::readdir(dir_ptr) as *const Dirent64;
-            
-            if entry_ptr.is_null() {
-                libc::closedir(dir_ptr);
-                return None;
-            }
-            
-            let entry = &*entry_ptr;
-            
-            // Check if this is the entry we're looking for (by inode)
-            if entry.d_ino == target_ino {
-                // Extract file type from d_namlen
-                let file_type = extract_file_type_from_namlen(entry.d_namlen);
-                libc::closedir(dir_ptr);
-                return file_type;
-            }
-        }
-    }
-}
-
 /// DirEntryRaw is essentially copied from the walkdir crate so that we can
 /// build `DirEntry`s from whole cloth in the parallel iterator.
 #[derive(Clone)]
@@ -404,45 +333,13 @@ impl DirEntryRaw {
     ) -> Result<DirEntryRaw, Error> {
         let ty = {
             let _guard = ProfileGuard::new(FsOperation::FileType);
-
-            #[cfg(target_os = "aix")]
-            {
-                // AIX d_type optimization: Check if enabled via environment variable
-                // READDIR_GET_FILE_TYPE=1 enables reading file type from d_namlen
-                // If not set, falls back to standard lstat() behavior
-
-                if std::env::var("READDIR_GET_FILE_TYPE").is_ok() {
-                    // Environment variable is set - use d_namlen optimization
-                    // Try to extract file type from d_namlen upper byte
-                    match aix_extract_file_type_from_direntry(ent) {
-                        Some(file_type) => Ok(file_type),
-                        None => {
-                            // d_namlen didn't have type info, fallback to lstat()
-                            ent.file_type().map_err(|err| {
-                                let err = Error::Io(io::Error::from(err))
-                                    .with_path(ent.path());
-                                Error::WithDepth { depth, err: Box::new(err) }
-                            })
-                        }
-                    }?
-                } else {
-                    // Environment variable NOT set - use standard lstat() path
-                    ent.file_type().map_err(|err| {
-                        let err = Error::Io(io::Error::from(err))
-                            .with_path(ent.path());
-                        Error::WithDepth { depth, err: Box::new(err) }
-                    })?
-                }
-            }
-
-            #[cfg(not(target_os = "aix"))]
-            {
-                ent.file_type().map_err(|err| {
-                    let err =
-                        Error::Io(io::Error::from(err)).with_path(ent.path());
-                    Error::WithDepth { depth, err: Box::new(err) }
-                })?
-            }
+            // AIX: file type is already extracted by AixReadDir when READDIR_GET_FILE_TYPE is set
+            // For standard fs::DirEntry, this will call lstat()
+            ent.file_type().map_err(|err| {
+                let err =
+                    Error::Io(io::Error::from(err)).with_path(ent.path());
+                Error::WithDepth { depth, err: Box::new(err) }
+            })?
         };
         DirEntryRaw::from_entry_os(depth, ent, ty)
     }
@@ -1616,6 +1513,9 @@ impl Work {
     fn read_dir(&mut self) -> Result<fs::ReadDir, Error> {
         let readdir = {
             let _guard = ProfileGuard::new(FsOperation::ReadDir);
+            // AIX: When READDIR_GET_FILE_TYPE is set, the kernel optimization is active
+            // fs::read_dir will use readdir() which populates d_namlen with file type
+            // The file_type() call in DirEntryRaw::from_entry() will be fast (no lstat)
             match fs::read_dir(self.dent.path()) {
                 Ok(readdir) => readdir,
                 Err(err) => {

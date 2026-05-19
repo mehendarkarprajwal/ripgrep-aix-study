@@ -21,13 +21,13 @@
 //! └──────────────────┴──────────────────┘
 //! ```
 
+#[cfg(target_os = "aix")]
+use libc::{DIR, c_char, c_ushort, mode_t};
 use std::ffi::{CStr, OsStr, OsString};
 use std::fs::FileType;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "aix")]
-use libc::{DIR, c_char, c_ushort, mode_t};
 
 /// AIX dirent64 structure matching the system definition
 ///
@@ -73,8 +73,9 @@ pub struct AixDirEntry {
     file_name: OsString,
     /// Inode number
     ino: u64,
-    /// File type (if available from d_namlen)
-    file_type: Option<FileType>,
+    /// File mode bits (if available from d_namlen)
+    /// Contains S_IFMT bits that indicate file type
+    mode: Option<mode_t>,
 }
 
 #[cfg(target_os = "aix")]
@@ -94,12 +95,44 @@ impl AixDirEntry {
         self.ino
     }
 
-    /// Get file type without calling lstat()
+    /// Check if this entry is a directory (fast, no syscall)
+    pub fn is_dir(&self) -> bool {
+        self.mode
+            .map(|m| (m & file_type_bits::S_IFMT) == file_type_bits::S_IFDIR)
+            .unwrap_or(false)
+    }
+
+    /// Check if this entry is a regular file (fast, no syscall)
+    pub fn is_file(&self) -> bool {
+        self.mode
+            .map(|m| (m & file_type_bits::S_IFMT) == file_type_bits::S_IFREG)
+            .unwrap_or(false)
+    }
+
+    /// Check if this entry is a symbolic link (fast, no syscall)
+    pub fn is_symlink(&self) -> bool {
+        self.mode
+            .map(|m| (m & file_type_bits::S_IFMT) == file_type_bits::S_IFLNK)
+            .unwrap_or(false)
+    }
+
+    /// Get file type - only calls lstat() if mode is not available
     ///
     /// Returns the file type that was extracted from d_namlen during readdir().
-    /// If file type wasn't available, returns None (caller should use lstat()).
-    pub fn file_type(&self) -> Option<FileType> {
-        self.file_type
+    /// If file type wasn't available, falls back to lstat().
+    pub fn file_type(&self) -> io::Result<FileType> {
+        if let Some(mode) = self.mode {
+            // Fast path: we have mode bits from d_namlen
+            Ok(mode_to_file_type_fast(mode))
+        } else {
+            // Slow path: need to call lstat()
+            fs::symlink_metadata(&self.path).map(|m| m.file_type())
+        }
+    }
+
+    /// Get raw mode bits if available
+    pub fn mode(&self) -> Option<mode_t> {
+        self.mode
     }
 }
 
@@ -168,14 +201,14 @@ impl AixReadDir {
             // Build full path
             let path = self.dir_path.join(&file_name);
 
-            // Extract file type from d_namlen upper byte
-            let file_type = extract_file_type_from_namlen(entry.d_namlen);
+            // Extract mode bits from d_namlen upper byte
+            let mode = extract_mode_from_namlen(entry.d_namlen);
 
             Ok(Some(AixDirEntry {
                 path,
                 file_name,
                 ino: entry.d_ino as u64,
-                file_type,
+                mode,
             }))
         }
     }
@@ -205,7 +238,7 @@ impl Iterator for AixReadDir {
     }
 }
 
-/// Extract file type from the upper byte of d_namlen
+/// Extract mode bits from the upper byte of d_namlen
 ///
 /// This function extracts the file type bits that were stored in the
 /// upper byte of d_namlen by the patched AIX readdir() implementation.
@@ -216,11 +249,10 @@ impl Iterator for AixReadDir {
 ///
 /// # Returns
 ///
-/// * `Some(FileType)` - If file type bits are present and valid
+/// * `Some(mode_t)` - If file type bits are present
 /// * `None` - If no file type information is available (fallback to lstat)
 #[cfg(target_os = "aix")]
-pub fn extract_file_type_from_namlen(d_namlen: c_ushort) -> Option<FileType> {
-
+pub fn extract_mode_from_namlen(d_namlen: c_ushort) -> Option<mode_t> {
     // Extract upper byte (file type bits)
     let type_byte = ((d_namlen >> 8) & 0xFF) as u8;
 
@@ -247,13 +279,13 @@ fn mode_to_file_type(mode: mode_t) -> Option<FileType> {
     // We need to create a FileType from mode bits
     // Since FileType can't be directly constructed in Rust, we use std::fs::metadata
     // on a path that we know has the same file type
-    
+
     // However, this is expensive. Instead, we'll use a workaround:
     // We'll use std::os::unix::fs::FileTypeExt to check the mode bits
     // and return a FileType from a known file
-    
+
     let file_type_mode = mode & S_IFMT;
-    
+
     // Match against known file types and use metadata from system paths
     // This is a workaround since we can't construct FileType directly
     match file_type_mode {
@@ -276,7 +308,8 @@ fn mode_to_file_type(mode: mode_t) -> Option<FileType> {
         }
         S_IFBLK => {
             // For block devices, try /dev/sda or similar
-            std::fs::metadata("/dev/hd0").ok()
+            std::fs::metadata("/dev/hd0")
+                .ok()
                 .or_else(|| std::fs::metadata("/dev/sda").ok())
                 .map(|m| m.file_type())
         }
