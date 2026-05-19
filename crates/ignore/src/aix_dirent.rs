@@ -269,11 +269,12 @@ pub fn extract_mode_from_namlen(d_namlen: c_ushort) -> Option<mode_t> {
     mode_to_file_type(mode)
 }
 
-/// Convert mode_t to FileType
+/// Convert mode_t to FileType using cached instances (fast, minimal syscalls)
 ///
-/// This creates a Rust FileType from AIX mode bits.
+/// This creates a Rust FileType from AIX mode bits using cached FileType instances.
+/// The cache is initialized once on first use, so subsequent calls are very fast.
 #[cfg(target_os = "aix")]
-fn mode_to_file_type(mode: mode_t) -> Option<FileType> {
+fn mode_to_file_type_fast(mode: mode_t) -> FileType {
     use file_type_bits::*;
 
     // We need to create a FileType from mode bits
